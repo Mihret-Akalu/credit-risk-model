@@ -1,6 +1,13 @@
+# src/api/pydantic_models.py
 from pydantic import BaseModel
 
-class CustomerRFM(BaseModel):
-    Recency: float
-    Frequency: int
-    Monetary: float
+class CustomerData(BaseModel):
+    Amount: float
+    Value: float
+    TransactionHour: int
+    TransactionDay: int
+    TransactionMonth: int
+    TransactionYear: int
+    ProductCategory: str
+    ChannelId: str
+    ProviderId: str
