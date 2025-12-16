@@ -1,52 +1,70 @@
 import pandas as pd
+import numpy as np
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
+from .feature_engineering import TemporalFeatures, WOETransformer
 
-def preprocess_data(df):
-    # Features
-    cat_features = ['CurrencyCode', 'ProviderId', 'ProductCategory', 'ChannelId']
-    num_features = ['Amount', 'Value', 'PricingStrategy']
-
-    # Pipeline
+def create_feature_pipeline(use_woe=True):
+    """
+    Creates the complete preprocessing pipeline.
+    
+    Args:
+        use_woe (bool): Whether to use WoE transformation for categorical features.
+    
+    Returns:
+        ColumnTransformer: Complete preprocessing pipeline
+    """
+    # Define feature groups
+    temporal_features = ['TransactionStartTime']
+    numerical_features = ['Amount', 'Value', 'PricingStrategy']
+    categorical_features = ['CurrencyCode', 'ProviderId', 'ProductCategory', 'ChannelId']
+    
+    # Temporal pipeline
+    temporal_pipeline = Pipeline([
+        ('temporal_extractor', TemporalFeatures())
+    ])
+    
+    # Numerical pipeline
+    numerical_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', StandardScaler())
+    ])
+    
+    # Categorical pipeline
+    if use_woe:
+        categorical_pipeline = Pipeline([
+            ('woe_transformer', WOETransformer(categorical_features=categorical_features))
+        ])
+    else:
+        categorical_pipeline = Pipeline([
+            ('onehot', OneHotEncoder(drop='first', handle_unknown='ignore'))
+        ])
+    
+    # Complete preprocessor
     preprocessor = ColumnTransformer(
         transformers=[
-            ('num', Pipeline([
-                ('imputer', SimpleImputer(strategy='median')),
-                ('scaler', StandardScaler())
-            ]), num_features),
-            ('cat', OneHotEncoder(drop='first', handle_unknown='ignore'), cat_features)
-        ]
+            ('temporal', temporal_pipeline, temporal_features),
+            ('num', numerical_pipeline, numerical_features),
+            ('cat', categorical_pipeline, categorical_features)
+        ],
+        remainder='drop'
     )
-
+    
     return preprocessor
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
 
-def create_proxy_target(df):
-    # RFM Metrics
-    df['TransactionStartTime'] = pd.to_datetime(df['TransactionStartTime'])
-    snapshot_date = df['TransactionStartTime'].max() + pd.Timedelta(days=1)
+
+def preprocess_data(df, use_woe=True):
+    """
+    Main preprocessing function for backward compatibility.
     
-    rfm = df.groupby('CustomerId').agg({
-        'TransactionStartTime': lambda x: (snapshot_date - x.max()).days,
-        'TransactionId': 'count',
-        'Amount': 'sum'
-    }).rename(columns={'TransactionStartTime': 'Recency',
-                       'TransactionId': 'Frequency',
-                       'Amount': 'Monetary'})
+    Args:
+        df (pd.DataFrame): Input dataframe
+        use_woe (bool): Whether to use WoE transformation
     
-    # Scale RFM
-    scaler = StandardScaler()
-    rfm_scaled = scaler.fit_transform(rfm)
-    
-    # KMeans
-    kmeans = KMeans(n_clusters=3, random_state=42)
-    rfm['Cluster'] = kmeans.fit_predict(rfm_scaled)
-    
-    # High-risk = lowest engagement
-    high_risk_cluster = rfm.groupby('Cluster')['Monetary'].mean().idxmin()
-    rfm['is_high_risk'] = (rfm['Cluster'] == high_risk_cluster).astype(int)
-    
-    return rfm[['is_high_risk']]
+    Returns:
+        ColumnTransformer: Fitted preprocessor
+    """
+    preprocessor = create_feature_pipeline(use_woe=use_woe)
+    return preprocessor
